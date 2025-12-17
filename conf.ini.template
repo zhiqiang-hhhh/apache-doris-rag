@@ -1,0 +1,30 @@
+[doris]
+host = localhost
+query_port = 9030
+http_port = 8030
+user = root
+password = 
+db_name = doris_rag_db
+table_name = doris_rag_zh_ai_docs
+
+[embedding]
+# Supported types: ollama, openai
+type = ollama
+model = bge-m3:latest
+# base_url = http://localhost:11434
+# api_key = 
+
+[llm]
+# Supported types: openai
+type = openai
+model = deepseek-v3-1-terminus
+api_key = xxxx
+base_url = https://xxxx
+temperature = 0.2
+
+[docs]
+doc_root = /doris-website/i18n/zh-CN/docusaurus-plugin-content-docs/version-4.x/
+
+[app]
+# Supported languages: zh, en
+language = zh
