@@ -55,9 +55,9 @@ def retrieve_context(query: str, top_k: int = 5) -> pd.DataFrame:
     table = client.open_table(doris_conf.get('table_name'))
     try:
         df = (
-            table.search(query_vec)
+            table.search(query_vec, vector_column="embedding")
             .limit(top_k)
-            .select(["id", "path", "title", "content"])
+            .select(["_key", "filename", "text", "location"])
             .to_pandas()
         )
     finally:

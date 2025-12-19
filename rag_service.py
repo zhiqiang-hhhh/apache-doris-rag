@@ -43,15 +43,39 @@ async def chat(req: ChatRequest):
     context_blocks = []
     sources = []
     for _, row in context_df.iterrows():
-        block = f"[{get_message('source_label')}: {row['path']} - {row['title']}]\n{row['content']}"
-        context_blocks.append(block)
-        sources.append(
-            {
-                "id": int(row["id"]),
-                "path": row["path"],
-                "title": row["title"],
-            }
-        )
+      filename = row.get("filename", "")
+      text = row.get("text", "")
+      key = row.get("_key", "")
+      location = row.get("location")
+
+      # Normalize values to JSON-serializable types
+      try:
+        key = str(key) if key is not None else ""
+      except Exception:
+        key = ""
+
+      # Convert numpy arrays or pandas objects to plain Python lists
+      if hasattr(location, "tolist"):
+        try:
+          location = location.tolist()
+        except Exception:
+          location = None
+      elif isinstance(location, tuple):
+        location = list(location)
+      elif not isinstance(location, list):
+        # Keep None or simple scalars; otherwise drop
+        if not (location is None or isinstance(location, (int, float, str))):
+          location = None
+
+      block = f"[{get_message('source_label')}: {filename}]\n{text}"
+      context_blocks.append(block)
+      sources.append(
+        {
+          "key": key,
+          "filename": filename,
+          "location": location,
+        }
+      )
 
     context_text = "\n\n---\n\n".join(context_blocks)
 
@@ -125,7 +149,11 @@ async def index():
       if (sources && sources.length > 0 && role === 'assistant') {{
         const sdiv = document.createElement('div');
         sdiv.className = 'sources';
-        sdiv.textContent = '{get_message('ui_source_ref')}' + sources.map(s => s.path + ' (' + s.title + ')').join(' | ');
+        sdiv.textContent = '{get_message('ui_source_ref')}' + sources.map(s => {{
+          const name = s.filename || s.path || 'source';
+          const loc = (s.location !== undefined && s.location !== null) ? ` @ ${{Array.isArray(s.location) ? s.location.join(',') : s.location}}` : '';
+          return name + loc;
+        }}).join(' | ');
         div.appendChild(sdiv);
       }}
 

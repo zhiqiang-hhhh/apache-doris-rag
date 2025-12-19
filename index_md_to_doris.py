@@ -79,7 +79,7 @@ def md_to_doris_flow(flow_builder: cocoindex.FlowBuilder, data_scope: cocoindex.
         with doc["chunks"].row() as chunk:
             chunk["embedding"] = text_to_embedding(chunk["text"])
             out.collect(
-                id=cocoindex.GeneratedField.UUID,
+                _key=cocoindex.GeneratedField.UUID,
                 filename=doc["filename"],
                 location=chunk["location"],
                 text=chunk["text"],
@@ -98,5 +98,5 @@ def md_to_doris_flow(flow_builder: cocoindex.FlowBuilder, data_scope: cocoindex.
             password=DORIS_PASSWORD,
             batch_size=5000,
         ),
-        primary_key_fields=["id"],
+        primary_key_fields=["_key"],
     )

@@ -42,9 +42,6 @@ Ensure Doris FE/BE is started and `conf.ini` is configured correctly, then execu
 ```bash
 # Recommended: CocoIndex CLI
 cocoindex update index_md_to_doris
-
-# Alternative: Python entry script
-python index_md_to_doris.py
 ```
 
 This builds the vector index by:
