@@ -1,161 +1,102 @@
-import os
-import re
-import time
 from pathlib import Path
-from typing import List, Dict
 
-import pandas as pd
-from doris_vector_search import DorisVectorClient, AuthOptions, IndexOptions
-
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from rag_lib import get_embedding_model
+import cocoindex
 from conf import settings
+from doris_target import DorisTarget
+from cocoindex.llm import LlmApiType
+from cocoindex.auth_registry import add_transient_auth_entry
 
 
-DOC_ROOT = Path(settings.docs.get('doc_root'))
+DOC_ROOT = Path(settings.docs.get("doc_root"))
+
+# Doris connection from conf.ini
+_dc = settings.doris
+DORIS_FE_HOST = _dc.get("host", "localhost")
+DORIS_FE_PORT = int(_dc.get("http_port", 8030))
+DORIS_QUERY_PORT = int(_dc.get("query_port", 9030))
+DORIS_DATABASE = _dc.get("db_name", "cocoindex_demo")
+DORIS_TABLE = _dc.get("table_name", "document_embeddings")
+DORIS_USER = _dc.get("user", "root")
+DORIS_PASSWORD = _dc.get("password", "")
+
+# Chunking from conf.ini
+CHUNK_SIZE = int(settings.docs.get("chunk_size", "500"))
+CHUNK_OVERLAP = int(settings.docs.get("chunk_overlap", "100"))
+
+# Embedding settings from conf.ini
+_emb = settings.embedding
+EMB_TYPE = _emb.get("type", "openai").lower()
+EMB_MODEL = _emb.get("model", "text-embedding-3-small")
+EMB_BASE_URL = _emb.get("base_url", "https://api.openai.com/v1")
+EMB_API_KEY = _emb.get("api_key", "")
+EMB_DIM = int(_emb.get("embed_dim", "1536"))
 
 
-CHUNK_SIZE = 500
-CHUNK_OVERLAP = 100
-
-
-def collect_markdown_files(root: Path) -> List[Path]:
-    files = list(root.rglob("*.md")) + list(root.rglob("*.mdx"))
-    return sorted(set(files))
-
-
-def read_markdown(path: Path) -> str:
-    with path.open("r", encoding="utf-8") as f:
-        return f.read()
-
-
-def extract_title_from_markdown(text: str, default: str) -> str:
-    for line in text.splitlines():
-        line = line.strip()
-        if line.startswith("# "):
-            return line[2:].strip()
-        if line.startswith("## "):
-            return line[3:].strip()
-    return default
-
-
-def clean_text(text: str) -> str:
-    # remove docusaurus frontmatter
-    text = re.sub(r"^---.*?---\s*", "", text, flags=re.S | re.M)
-    lines = [ln.rstrip() for ln in text.splitlines()]
-    return "\n".join(lines).strip()
-
-
-def build_documents() -> List[Dict]:
-    files = collect_markdown_files(DOC_ROOT)
-    print(f"Found {len(files)} markdown files under {DOC_ROOT}")
-
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP, length_function=len
-    )
-
-    docs: List[Dict] = []
-    cur_id = 1
-
-    for fp in files:
-        raw = read_markdown(fp)
-        cleaned = clean_text(raw)
-        if not cleaned:
-            continue
-
-        title = extract_title_from_markdown(cleaned, default=fp.stem)
-        chunks = text_splitter.split_text(cleaned)
-
-        rel_path = str(fp.relative_to(DOC_ROOT))
-        for chunk in chunks:
-            docs.append(
-                {
-                    "id": cur_id,
-                    "path": rel_path,
-                    "title": title,
-                    "content": chunk,
-                }
-            )
-            cur_id += 1
-
-    print(f"Built {len(docs)} text chunks")
-    return docs
-
-
-def embed_documents(docs: List[Dict]) -> pd.DataFrame:
-    if not docs:
-        raise ValueError("No documents to embed")
-
-    embeddings = get_embedding_model()
-
-    texts = [d["content"] for d in docs]
-    print("Generating embeddings via Ollama (this may take a while)...")
-    vectors = embeddings.embed_documents(texts)
-    print(f"Got {len(vectors)} embeddings; dim={len(vectors[0]) if vectors else 0}")
-
-    df = pd.DataFrame(
-        [
-            {
-                "id": d["id"],
-                "path": d["path"],
-                "title": d["title"],
-                "content": d["content"],
-                "embedding": vec,
-            }
-            for d, vec in zip(docs, vectors)
-        ]
-    )
-    return df
-
-
-def write_to_doris(df: pd.DataFrame):
-    """Write embeddings DataFrame into an existing Doris database.
-    assume DB_NAME already exists in Doris.
-    `CREATE DATABASE IF NOT EXISTS doris_rag_db;`
-    """
-    doris_conf = settings.doris
-    auth = AuthOptions(
-        host=doris_conf.get('host', 'localhost'),
-        query_port=int(doris_conf.get('query_port', 9030)),
-        http_port=int(doris_conf.get('http_port', 8030)),
-        user=doris_conf.get('user', 'root'),
-        password=doris_conf.get('password', ''),
-    )
-    db_name = doris_conf.get('db_name')
-    table_name = doris_conf.get('table_name')
-
-    client = DorisVectorClient(db_name, auth_options=auth)
-
-    index_options = IndexOptions(index_type="hnsw", metric_type="inner_product")
-
-    print("Creating/opening table and uploading data to Doris...")
-    try:
-        table = client.create_table(
-            table_name,
-            df,
-            index_options=index_options,
+@cocoindex.transform_flow()
+def text_to_embedding(
+    text: cocoindex.DataSlice[str],
+) -> cocoindex.DataSlice[list[float]]:
+    if EMB_TYPE == "openrouter":
+        api_type = LlmApiType.OPEN_ROUTER
+    elif EMB_TYPE == "openai":
+        api_type = LlmApiType.OPENAI
+    else:
+        raise ValueError(
+            f"Unsupported embedding.type for indexing: {EMB_TYPE}. Use 'openai' or 'openrouter'."
         )
-    except Exception as e:
-        print(f"create_table failed, trying to open existing table: {e}")
-        table = client.open_table(table_name)
-        table.insert(df)
 
-    print("Waiting for index build...")
-    time.sleep(5)
-
-    client.close()
-    print("Finished writing data to Doris.")
-
-
-def main():
-    docs = build_documents()
-    if not docs:
-        print("No docs found; exit.")
-        return
-
-    df = embed_documents(docs)
-    write_to_doris(df)
+    return text.transform(
+        cocoindex.functions.EmbedText(
+            api_type=api_type,
+            model=EMB_MODEL,
+            address=EMB_BASE_URL,
+            output_dimension=EMB_DIM,
+            api_key=add_transient_auth_entry(EMB_API_KEY),
+        )
+    )
 
 
-if __name__ == "__main__":
-    main()
+@cocoindex.flow_def(name="MdToDoris")
+def md_to_doris_flow(flow_builder: cocoindex.FlowBuilder, data_scope: cocoindex.DataScope) -> None:
+    data_scope["docs"] = flow_builder.add_source(
+        cocoindex.sources.LocalFile(
+            path=str(DOC_ROOT),
+            included_patterns=["**/*.md", "**/*.mdx"],
+            excluded_patterns=["**/*.pdf", "**/*.png", "**/*.jpg", "**/*.jpeg"],
+        )
+    )
+
+    out = data_scope.add_collector()
+
+    with data_scope["docs"].row() as doc:
+        doc["chunks"] = doc["content"].transform(
+            cocoindex.functions.SplitRecursively(),
+            language="markdown",
+            chunk_size=CHUNK_SIZE,
+            chunk_overlap=CHUNK_OVERLAP,
+        )
+
+        with doc["chunks"].row() as chunk:
+            chunk["embedding"] = text_to_embedding(chunk["text"])
+            out.collect(
+                id=cocoindex.GeneratedField.UUID,
+                filename=doc["filename"],
+                location=chunk["location"],
+                text=chunk["text"],
+                embedding=chunk["embedding"],
+            )
+
+    out.export(
+        "md_embeddings",
+        DorisTarget(
+            fe_host=DORIS_FE_HOST,
+            fe_http_port=DORIS_FE_PORT,
+            query_port=DORIS_QUERY_PORT,
+            database=DORIS_DATABASE,
+            table=DORIS_TABLE,
+            username=DORIS_USER,
+            password=DORIS_PASSWORD,
+            batch_size=5000,
+        ),
+        primary_key_fields=["id"],
+    )

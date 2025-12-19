@@ -1,18 +1,19 @@
 [doris]
 host = localhost
-query_port = 9030
-http_port = 8030
+query_port = 6937
+http_port = 5937
 user = root
 password = 
-db_name = doris_rag_db
-table_name = doris_rag_zh_ai_docs
+db_name = cocoindex_demo
+table_name = document_embeddings
 
 [embedding]
-# Supported types: ollama, openai
-type = ollama
-model = bge-m3:latest
-# base_url = http://localhost:11434
-# api_key = 
+# Supported types: openrouter
+type = openrouter
+model = qwen/qwen3-embedding-8b
+embed_dim = 4096
+base_url = https://openrouter.ai/api/v1
+api_key = ""
 
 [llm]
 # Supported types: openai
@@ -23,8 +24,8 @@ base_url = https://xxxx
 temperature = 0.2
 
 [docs]
-doc_root = /doris-website/i18n/zh-CN/docusaurus-plugin-content-docs/version-4.x/
+doc_root = /mnt/disk4/hezhiqiang/code/doris-website/docs/ai
 
 [app]
 # Supported languages: zh, en
-language = zh
+language = en

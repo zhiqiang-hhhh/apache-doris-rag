@@ -20,23 +20,34 @@ pip install "doris-vector-search>=0.0.5" langchain langchain-community openai fa
 
 ## Configuration
 
-Before running, please modify the `conf.ini` configuration file according to your actual environment:
+Before running, please modify the `conf.ini` configuration file according to your environment. All runtime and indexing parameters are consolidated in this file (no env vars required):
 
 - **[doris]**: Configure Doris FE connection information (host, port, user, password, db, table).
-- **[embedding]**: Configure Embedding model (supports ollama or openai).
+- **[embedding]**: Configure embedding for both retrieval and indexing.
+	- `type`: `openai` or `openrouter` (for indexing). `ollama` is supported for retrieval in `rag_lib.py`, but indexing requires `openai`/`openrouter`.
+	- `model`: embedding model name.
+	- `base_url`, `api_key`: endpoint and credential.
+	- `embed_dim` (optional): embedding dimension (defaults to 1536 if omitted).
 - **[llm]**: Configure LLM model (supports openai protocol).
-- **[docs]**: Specify the document root directory path.
+- **[docs]**: Document ingestion settings.
+	- `doc_root`: directory path to scan `.md`/`.mdx`.
+	- `chunk_size`: chunk size for markdown splitting (default 500).
+	- `chunk_overlap`: chunk overlap for splitting (default 100).
 - **[app]**: Set application language (`zh` or `en`).
 
 ## Build Vector Index
 
-Ensure Doris FE/BE is started and `conf.ini` is configured correctly, then execute:
+Ensure Doris FE/BE is started and `conf.ini` is configured correctly, then execute one of the following:
 
 ```bash
+# Recommended: CocoIndex CLI
+cocoindex update index_md_to_doris
+
+# Alternative: Python entry script
 python index_md_to_doris.py
 ```
 
-The script will:
+This builds the vector index by:
 
 1. Scan all markdown/mdx files in the directory specified by `doc_root` in `conf.ini`.
 2. Clean and chunk the text.
