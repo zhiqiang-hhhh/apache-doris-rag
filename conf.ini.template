@@ -24,7 +24,7 @@ base_url = https://xxxx
 temperature = 0.2
 
 [docs]
-doc_root = /mnt/disk4/hezhiqiang/code/doris-website/docs/ai
+doc_root = /doris-website/i18n/zh-CN/docusaurus-plugin-content-docs/version-4.x/
 
 [app]
 # Supported languages: zh, en
